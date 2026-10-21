@@ -44,6 +44,99 @@ gets a history line chart. The URL mirrors what is on screen (`src/web/routes.ts
 | `…?inflation=1` | Amounts adjusted for inflation |
 | `…?andel=inkomster` | Graphs in percent of the year's revenues (`andel=utgifter`: of expenses) |
 
+## MCP server
+
+The budget data is also exposed as an [MCP](https://modelcontextprotocol.io) server
+(`src/mcp.ts`), so an LLM client can query it directly without a browser.
+
+```bash
+bun src/mcp.ts   # speaks MCP over stdio
+```
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_years` | Available budget years |
+| `get_overview(year)` | Totals + all expense/revenue areas |
+| `get_area(year, uo, top?)` | One utgiftsområde with top-N anslag |
+| `get_posting(year, uo, id)` | Single anslag |
+| `get_revenue_area(year, id)` | One inkomsttyp with its inkomsttitlar |
+| `search(query, year)` | Full-text search across areas and postings |
+| `get_history(uo, adjust?)` | Area values across all years (optionally inflation-adjusted) |
+
+### Register in an MCP client
+
+**Claude Desktop** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "statsbudgeten": {
+      "command": "bun",
+      "args": ["/path/to/statsbudgeten-se/src/mcp.ts"]
+    }
+  }
+}
+```
+
+**Claude Code** (`.mcp.json` in project root):
+
+```json
+{
+  "mcpServers": {
+    "statsbudgeten": {
+      "command": "bun",
+      "args": ["src/mcp.ts"]
+    }
+  }
+}
+```
+
+### Docker (with mcp-shell)
+
+The [spike repo](../) ships a Dockerfile that wraps this server with
+[mcp-shell](https://github.com/sonirico/mcp-shell), giving the LLM shell access
+(run scripts, edit files) alongside the budget tools.
+
+```bash
+# Build (from the spike repo root)
+docker build -t statsbudgeten-mcp-devenv .
+```
+
+Register in your MCP client:
+
+```json
+{
+  "mcpServers": {
+    "statsbudgeten": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "/path/to/statsbudgeten-se:/app",
+        "-v", "/path/to/mcp-shell.yaml:/etc/mcp-shell/security.yaml:ro",
+        "statsbudgeten-mcp-devenv"
+      ]
+    }
+  }
+}
+```
+
+The container's main process is `mcp-shell` (stdio MCP). The entrypoint runs
+`bun install` on first start; `node_modules` persists in the volume mount.
+
+### Smoke test (no LLM client needed)
+
+```bash
+bun src/mcp.ts <<'EOF'
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_years","arguments":{}}}
+EOF
+```
+
+Expect three JSON-RPC responses: server info, tool list, and the years array.
+
 ## Data
 
 The official workbooks live in `examples/` and are converted to JSON in `data/`
